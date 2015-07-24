@@ -1,0 +1,97 @@
+;;;
+.macro	decode
+ldd ZL, Y+@2
+lpm @1, Z
+.endmacro
+
+decode r16, 0
+;;;
+
+; Load destination pointer in Y
+ldi YH, dst_hi
+ldi YL, dst_lo
+; Load decoding lut in Z
+ldi ZH, decode_lut_hi
+
+; Decode destination
+; first dst pixel pair
+ld ZL, Y
+lpm r16, Z
+; second dst pixel pair
+ldd ZL, Y+1
+lpm r17, Z
+; third dst pixel pair
+ldd ZL, Y+2
+lpm r18, Z
+; fourth dst pixel pair
+ldd ZL, Y+3
+lpm r19, Z
+
+; Load sprite in Z
+mov ZH, sprite_ptr_hi
+mov ZL, sprite_ptr_lo
+
+; first src pixel pair
+lpm r20, Z+		;load the pair
+mov r21, r20	;make copy
+; first pixel
+cbr r21, F0		;clear upper nibble
+tst r21			;check if non zero
+breq skip		;skip pixel if zero
+cbr r16, 0F		;clear destination nibble
+and r16, r21	;overwrite with new nibble
+skip:
+; second pixel
+cbr r20, 0F		;clear lower nibble
+tst r20			;check if non zero
+breq skip2		;skip if zero
+cbr r16, F0		;clear destination nibble
+and r16, r20	;overwrite with new nibble
+skip2:
+
+;
+; now loop the above block three more times
+; TODO
+;
+
+; Encode destination
+; Load encoding lut in Z
+ldi ZH, encode_lut_hi
+; first dst pixel pair
+mov ZL, r16
+lpm r16, Z
+st Y, r16
+; second dst pixel pair
+mov ZL, r17
+lpm r17, Z
+std Y+1, r17
+; third dst pixel pair
+mov ZL, r18
+lpm r18, Z
+std Y+2, r18
+; fourth dst pixel pair
+mov ZL, r19
+lpm r19, Z
+std Y+3, r19
+
+
+
+;;; For non aligned cases:
+; first src pixel pair
+lpm r20, Z+		;load the pair
+mov r21, r20	;make copy
+; first pixel
+cbr r21, F0		;clear upper nibble
+tst r21			;check if non zero
+breq skip		;skip pixel if zero
+swap r21		;swap nibbles
+cbr r16, F0		;clear destination nibble
+and r16, r21	;overwrite with new nibble
+skip:
+; second pixel
+cbr r20, 0F		;clear lower nibble
+tst r20			;check if non zero
+breq skip2		;skip if zero
+swap r20		;swap nibbles
+cbr r16, 0F		;clear destination nibble
+and r16, r20	;overwrite with new nibble
