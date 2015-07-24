@@ -31,6 +31,15 @@ void printUsage()
 	exit(1);
 }
 
+uint8_t getTile(tmxparser::TmxMap& map, int layer, int x, int y)
+{
+	tmxparser::TmxLayerTile& tile = map.layerCollection[layer].tiles[y * map.width + x];
+	tmxparser::TmxTileset& tileset = map.tilesetCollection[tile.tilesetIndex];
+
+	uint32_t index = tile.gid - tileset.firstgid;
+	return (uint8_t) index;
+}
+
 void writeFile(tmxparser::TmxMap& map, const char* filename)
 {
 	if(map.width > 65535 || map.height > 65535)
@@ -75,7 +84,7 @@ void writeFile(tmxparser::TmxMap& map, const char* filename)
 		{
 			for(int x = 0; x < map.width; x++)
 			{
-				uint8_t tile = (uint8_t)(map.layerCollection[layer].tiles[y * map.width + x].tilesetIndex);
+				uint8_t tile = getTile(map, layer, x, y);
 				fwrite(&tile, 1, 1, fs);
 			}
 		}
@@ -83,7 +92,7 @@ void writeFile(tmxparser::TmxMap& map, const char* filename)
 		{
 			for(int y = 0; y < map.height; y++)
 			{
-				uint8_t tile = (uint8_t)(map.layerCollection[layer].tiles[y * map.width + x].tilesetIndex);
+				uint8_t tile = getTile(map, layer, x, y);
 				fwrite(&tile, 1, 1, fs);
 			}
 		}
@@ -141,20 +150,20 @@ int main(int argc, char* argv[])
 		outputFile = DEFAULT_OUTPUT_FILENAME;
 	}
 
-	printf("Input: %s\n"
-			"Output: %s\n", inputFile, outputFile);
-
-			
 	tmxparser::TmxMap map;
-	tmxparser::TmxReturn error = tmxparser::parseFromFile(inputFile, &map);
+	tmxparser::TmxReturn error = tmxparser::parseFromFile(inputFile, &map, "");
 	
-	if(error != kSuccess)
+	if(error != tmxparser::kSuccess)
 	{
 		fprintf(stderr, "Error reading file %s\n", inputFile);
 		exit(2);
 	}	
 			
 	writeFile(map, outputFile);
-			
+
+	printf("Input: %s\n"
+			"Dimensions: %d x %d\n"
+			"Output: %s\n", inputFile, map.width, map.height, outputFile);
+	
 	return 0;
 }
