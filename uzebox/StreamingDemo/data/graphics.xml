@@ -1,0 +1,15 @@
+<?xml version="1.0" ?>
+<gfx-xform version="1">
+ 
+	<input file="../data/tiles.png" type="png" tile-width="8" tile-height="8" />
+
+	<output file="../data/tiles.inc.h" type="8bpp">
+		<tiles var-name="graphicsTiles"/>
+
+		<maps pointers-size="8"> 
+			<map var-name="graphicsMap" left="0" top="0" width="2" height="4"/>
+		</maps>	
+
+	</output>
+	 
+</gfx-xform>
