@@ -7,7 +7,7 @@
 		<tiles var-name="graphicsTiles"/>
 
 		<maps pointers-size="8"> 
-			<map var-name="graphicsMap" left="0" top="0" width="2" height="4"/>
+			<map var-name="graphicsMap" left="0" top="0" width="2" height="12"/>
 		</maps>	
 
 	</output>

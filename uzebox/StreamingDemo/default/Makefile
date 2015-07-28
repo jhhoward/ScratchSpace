@@ -57,7 +57,7 @@ LINKONLYOBJECTS =
 ## Include Directories
 INCLUDES = -I"$(KERNEL_DIR)" 
 
-ASSETS = ../data/graphics.inc.h ./map.dat
+ASSETS = ../data/graphics.inc.h ../data/overlay.inc.h ./map.dat 
 
 ## Build
 all: $(ASSETS) $(TARGET) $(GAME).hex $(GAME).eep $(GAME).lss $(GAME).uze size
@@ -65,6 +65,9 @@ all: $(ASSETS) $(TARGET) $(GAME).hex $(GAME).eep $(GAME).lss $(GAME).uze size
 ## Rebuild graphics resource
 ../data/graphics.inc.h: ../data/tiles.png ../data/graphics.xml
 	$(UZEBIN_DIR)gconvert ../data/graphics.xml
+
+../data/overlay.inc.h: ../data/overlay.png ../data/overlay.xml
+	$(UZEBIN_DIR)gconvert ../data/overlay.xml
 	
 ./map.dat: ../data/world.tmx
 	$(TMXCONVERT) -o ./map.dat ../data/world.tmx

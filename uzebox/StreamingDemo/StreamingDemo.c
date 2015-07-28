@@ -7,17 +7,25 @@
 #include <uzebox.h>
 #include "petitfatfs/pff.h"
 #include "data/tiles.inc.h"
+#include "data/overlay.inc.h"
 
-FATFS FileSystem;
+#define SCREEN_OVERLAY_HEIGHT 2
+#define SCREEN_SCROLL_HEIGHT (VRAM_TILES_V - SCREEN_OVERLAY_HEIGHT)
 
 #define MAP_TILE_PIXEL_SIZE 16
 #define MAP_TILE_PIXEL_SHIFT 4
+#define VRAM_SCROLL_WRAP_X VRAM_TILES_H
+#define VRAM_SCROLL_WRAP_Y SCREEN_SCROLL_HEIGHT
+#define MAP_TILE_SCROLL_WRAP_X (VRAM_SCROLL_WRAP_X / 2)
+#define MAP_TILE_SCROLL_WRAP_Y (VRAM_SCROLL_WRAP_Y / 2)
 #define PIXEL_TO_MAP_TILE(x) ((x) >> MAP_TILE_PIXEL_SHIFT)
 #define MAP_TILE_TO_PIXEL(x) ((x) << MAP_TILE_PIXEL_SHIFT)
 
 #define MAP_HEADER_SIZE 6
 #define MAP_READ_LENGTH 16
 #define REMOUNT_ON_READ 0
+#define NUM_READ_TRIES 1
+
 
 typedef struct
 {
@@ -41,23 +49,48 @@ enum
 Map_Header_t Map_Header;
 Vector Camera_Position;
 uint8_t Map_ReadBuffer[MAP_READ_LENGTH];
-
+FATFS FileSystem;
 
 void Map_Load()
 {
-	if(pf_mount(&FileSystem) == FR_OK)
+	int tries = 0;
+	
+	Print(0, SCREEN_SCROLL_HEIGHT, PSTR("LOADING.."));
+
+	while(tries < NUM_READ_TRIES)
 	{
-		if(pf_open("map.dat") == FR_OK)
+		tries++;
+		if(pf_mount(&FileSystem) == FR_OK)
 		{
-			WORD bytesRead;
+			if(pf_open("map.dat") == FR_OK)
+			{
+				WORD bytesRead;
+				
+				pf_read(&Map_Header, sizeof(Map_Header), &bytesRead);
+				
+				Print(0, SCREEN_SCROLL_HEIGHT, PSTR("MAP LOADED!      "));
+				Print(0, SCREEN_SCROLL_HEIGHT + 1, PSTR("MAP SIZE:     ,"));
+				PrintInt(13, SCREEN_SCROLL_HEIGHT + 1, 128, false);
+				PrintInt(19, SCREEN_SCROLL_HEIGHT + 1, 128, false);
+			}
+			else
+			{
+				Print(0, SCREEN_SCROLL_HEIGHT, PSTR("MAP LOAD FAILED"));
+			}
 			
-			pf_read(&Map_Header, sizeof(Map_Header), &bytesRead);
+			#if REMOUNT_ON_READ
+			pf_mount(NULL);
+			#endif
+			
+			return;
 		}
-		
-		#if REMOUNT_ON_READ
-		pf_mount(NULL);
-		#endif
+		else
+		{
+			pf_mount(NULL);
+			Print(0, SCREEN_SCROLL_HEIGHT, PSTR("RETRYING MOUNT   "));
+		}
 	}
+	Print(0, SCREEN_SCROLL_HEIGHT, PSTR("DISK MOUNT FAILED"));
 }
 
 void Map_Read(uint8_t layer, int x, int y, uint8_t orientation)
@@ -75,7 +108,7 @@ void Map_Read(uint8_t layer, int x, int y, uint8_t orientation)
 	}
 	else
 	{
-		pf_lseek(sizeof(Map_Header_t) + ((2 * layer + 1) * Map_Header.width * Map_Header.height) + (x * Map_Header.width + y));
+		pf_lseek(sizeof(Map_Header_t) + ((2 * layer + 1) * Map_Header.width * Map_Header.height) + (x * Map_Header.height + y));
 	}
 	
 	pf_read(Map_ReadBuffer, MAP_READ_LENGTH, &bytesRead);
@@ -84,7 +117,10 @@ void Map_Read(uint8_t layer, int x, int y, uint8_t orientation)
 	pf_mount(NULL);
 	#endif
 	
-	/*if(orientation == MapRead_Horizontal)
+	#if 0
+	Map_Header.width = 128;
+	Map_Header.height = 128;
+	if(orientation == MapRead_Horizontal)
 	{
 		for(int n = 0; n < MAP_READ_LENGTH; n++)
 		{
@@ -97,7 +133,8 @@ void Map_Read(uint8_t layer, int x, int y, uint8_t orientation)
 		{
 			Map_ReadBuffer[n] = ((y + n) % 3) == 0 || ((x) % 3) == 0 ? 1 : 0;
 		}
-	}*/
+	}
+	#endif
 }
 
 // Which map tile the camera is currently set to
@@ -116,17 +153,17 @@ void Map_UpdateAllTiles()
 	Map_ScrollX = cameraTileX;
 	Map_ScrollY = cameraTileY;
 	
-	Map_ScrollXOffset = Map_ScrollX % 16;
-	Map_ScrollYOffset = Map_ScrollY % 16;
+	Map_ScrollXOffset = Map_ScrollX % MAP_TILE_SCROLL_WRAP_X;
+	Map_ScrollYOffset = Map_ScrollY % MAP_TILE_SCROLL_WRAP_Y;
 	
 	int vramY = Map_ScrollYOffset * 2;
 	
-	for(int row = 0; row < 16; row++)
+	for(int row = 0; row < MAP_TILE_SCROLL_WRAP_Y; row++)
 	{
 		Map_Read(0, cameraTileX, cameraTileY + row, MapRead_Horizontal);
 		int vramX = Map_ScrollXOffset * 2;
 		
-		for(int column = 0; column < 16; column++)
+		for(int column = 0; column < MAP_TILE_SCROLL_WRAP_X; column++)
 		{
 			uint8_t tile = 4 * Map_ReadBuffer[column];
 			
@@ -136,12 +173,12 @@ void Map_UpdateAllTiles()
 			SetTile(vramX + 1, vramY + 1, tile + 3);
 		
 			vramX += 2;
-			if(vramX >= 32)
+			if(vramX >= VRAM_SCROLL_WRAP_X)
 				vramX = 0;
 		}
 		
 		vramY += 2;
-		if(vramY >= 32)
+		if(vramY >= VRAM_SCROLL_WRAP_Y)
 			vramY = 0;
 	}
 }
@@ -162,10 +199,10 @@ void Map_UpdateSliceVertical(int offsetX)
 	int vramX = (Map_ScrollXOffset + offsetX) * 2;
 	int vramY = Map_ScrollYOffset * 2;
 	
-	while(vramX >= 32)
-		vramX -= 32;
+	while(vramX >= VRAM_SCROLL_WRAP_X)
+		vramX -= VRAM_SCROLL_WRAP_X;
 	
-	for(int i = 0; i < 16; i++)
+	for(int i = 0; i < MAP_TILE_SCROLL_WRAP_Y; i++)
 	{
 		uint8_t tile = 4 * Map_ReadBuffer[i];
 		
@@ -175,7 +212,7 @@ void Map_UpdateSliceVertical(int offsetX)
 		SetTile(vramX + 1, vramY + 1, tile + 3);
 	
 		vramY += 2;
-		if(vramY == 32)
+		if(vramY == VRAM_SCROLL_WRAP_Y)
 			vramY = 0;
 	}
 }
@@ -187,10 +224,10 @@ void Map_UpdateSliceHorizontal(int offsetY)
 	int vramX = Map_ScrollXOffset * 2;
 	int vramY = (Map_ScrollYOffset + offsetY) * 2;
 	
-	while(vramY >= 32)
-		vramY -= 32;
+	while(vramY >= VRAM_SCROLL_WRAP_Y)
+		vramY -= VRAM_SCROLL_WRAP_Y;
 	
-	for(int i = 0; i < 16; i++)
+	for(int i = 0; i < MAP_TILE_SCROLL_WRAP_X; i++)
 	{
 		uint8_t tile = 4 * Map_ReadBuffer[i];
 		
@@ -200,7 +237,7 @@ void Map_UpdateSliceHorizontal(int offsetY)
 		SetTile(vramX + 1, vramY + 1, tile + 3);
 	
 		vramX += 2;
-		if(vramX == 32)
+		if(vramX == VRAM_SCROLL_WRAP_X)
 			vramX = 0;
 	}
 }
@@ -214,16 +251,16 @@ void Map_Update()
 	{
 		Map_ScrollX ++;
 		Map_ScrollXOffset++;
-		if(Map_ScrollXOffset == 16)
+		if(Map_ScrollXOffset == MAP_TILE_SCROLL_WRAP_X)
 			Map_ScrollXOffset = 0;
 			
-		Map_UpdateSliceVertical(15);
+		Map_UpdateSliceVertical(MAP_TILE_SCROLL_WRAP_X - 1);
 	}
 	while(cameraTileX < Map_ScrollX)
 	{
 		Map_ScrollX --;
 		if(Map_ScrollXOffset == 0)
-			Map_ScrollXOffset = 15;
+			Map_ScrollXOffset = MAP_TILE_SCROLL_WRAP_X - 1;
 		else
 			Map_ScrollXOffset --;
 			
@@ -234,16 +271,16 @@ void Map_Update()
 	{
 		Map_ScrollY ++;
 		Map_ScrollYOffset++;
-		if(Map_ScrollYOffset == 16)
+		if(Map_ScrollYOffset == MAP_TILE_SCROLL_WRAP_Y)
 			Map_ScrollYOffset = 0;
 			
-		Map_UpdateSliceHorizontal(15);
+		Map_UpdateSliceHorizontal(MAP_TILE_SCROLL_WRAP_Y - 1);
 	}
 	while(cameraTileY < Map_ScrollY)
 	{
 		Map_ScrollY --;
 		if(Map_ScrollYOffset == 0)
-			Map_ScrollYOffset = 15;
+			Map_ScrollYOffset = MAP_TILE_SCROLL_WRAP_Y - 1;
 		else
 			Map_ScrollYOffset --;
 			
@@ -251,13 +288,14 @@ void Map_Update()
 	}
 	
 	Screen.scrollX = Camera_Position.x;
-	Screen.scrollY = Camera_Position.y;
+	Screen.scrollY = Camera_Position.y % (SCREEN_SCROLL_HEIGHT * 8);
 }
 
 int main()
 {
 	ClearVram();
 	SetTileTable(graphicsTiles);
+	Screen.overlayTileTable = overlayTiles;
 	
 	for(int y=0;y<32;y++){
 		for(int x=0;x<32;x++){
@@ -265,6 +303,8 @@ int main()
 		}	
 	}
 
+	Screen.scrollHeight = SCREEN_SCROLL_HEIGHT;
+	Screen.overlayHeight = SCREEN_OVERLAY_HEIGHT;
 
 	Map_Init();
 	int cameraSpeed = 1;
@@ -286,7 +326,7 @@ int main()
 		{
 			Camera_Position.x -= cameraSpeed;
 		}
-		if((joypad & BTN_RIGHT))
+		if((joypad & BTN_RIGHT) && Camera_Position.x < (Map_Header.width - MAP_TILE_SCROLL_WRAP_X - 1) * MAP_TILE_PIXEL_SIZE - cameraSpeed)
 		{
 			Camera_Position.x += cameraSpeed;
 		}
@@ -294,7 +334,7 @@ int main()
 		{
 			Camera_Position.y -= cameraSpeed;
 		}
-		if((joypad & BTN_DOWN))
+		if((joypad & BTN_DOWN) && Camera_Position.y < (Map_Header.height - MAP_TILE_SCROLL_WRAP_Y - 1) * MAP_TILE_PIXEL_SIZE - cameraSpeed)
 		{
 			Camera_Position.y += cameraSpeed;
 		}
